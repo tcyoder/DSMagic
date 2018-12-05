@@ -1,0 +1,43 @@
+---
+title: "SupercalifragilsticexpiDataScience"
+author: "Tom Yoder - MIS 5470"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 2
+    toc_float: yes
+  pdf_document:
+    toc: yes
+    toc_depth: '2'
+---
+
+
+Using Data Science to Create Disney Magic - Data Exploration   
+============================================================
+
+What exactly did Touring Plans give us? Let's load four of my favorite rides.
+------
+```{r Load Data}
+SpaceshipEarth <- read.table(file= "Data/spaceship_earth.csv", header=TRUE, sep=",")
+
+Pirates <- read.table(file= "Data/pirates_of_caribbean.csv", header=TRUE, sep=",")
+
+SplashMountain <- read.table(file= "Data/splash_mountain.csv", header=TRUE, sep=",")
+
+ToyStory <- read.table(file= "Data/toy_story_mania.csv", header=TRUE, sep=",")
+
+```
+
+That took a little bit, let's see what these data sets look like. 
+
+```{r Preview Data}
+head(SpaceshipEarth)
+```
+
+For each ride we get the data of the observation, time, posted wait time (SPOSTMIN) and actual wait time (SACTMIN).
+
+
+
+
+
+
