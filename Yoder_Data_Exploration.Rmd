@@ -1,0 +1,409 @@
+---
+title: "Data Exploration"
+author: "Tom Yoder - MIS 5470"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 2
+    toc_float: yes
+  pdf_document:
+    toc: yes
+    toc_depth: '2'
+---
+
+
+Using Data Science to Create Disney Magic - Data Exploration   
+============================================================
+
+Let's begin!
+
+Previewing the Data
+------------------
+
+What exactly did Touring Plans give us? Let's load in one of my of my favorite rides, Spaceship Earth, and the meta data file.
+
+```{r Load Data}
+SpaceshipEarth <- read.csv(file= "Data/spaceship_earth.csv", stringsAsFactors=FALSE, header=TRUE, sep=",")
+
+MetaData <- read.csv(file= "Data/metadata.csv", stringsAsFactors =FALSE, header=TRUE, sep=",")
+
+```
+
+Let's see what the attraction data sets look like. 
+
+```{r Preview Data}
+head(SpaceshipEarth)
+```
+
+For each ride we get the date of the observation, time, posted wait time (SPOSTMIN) and actual wait time (SACTMIN). Hmm, might have some NA cleaning to do.
+
+```{r Structure of Spaceship Earth}
+str(SpaceshipEarth)
+```
+
+Checking out the structure of the Spaceship Earth set, it looks like we have 240919 observations. 
+Just how many NAs are in the Actual Wait time field though? How many actual values?
+
+```{r NA Count}
+#How many NAs?
+sum(is.na(SpaceshipEarth$SACTMIN))
+#How many actual values?
+sum(!is.na(SpaceshipEarth$SACTMIN))
+```
+
+Yikes! Since it seems Actual Wait Time will not be useful, let's focus on posted wait time.
+
+What fields do we have in the Metadata file?
+
+```{r Structure of Metadata}
+str(MetaData)
+```
+
+That is a lot of metadata! I will study the data dictionary and let you know what is what as we use it. 
+
+
+Preparing the Data
+------------------
+
+Let's load some libraries and really start digging in.
+
+```{r Loading Libraries}
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+library(caret)
+```
+
+Let's fix up some of these date fields to help us out down the line.
+
+```{r Correcting date fields}
+
+SpaceshipEarth$date <- as.Date(SpaceshipEarth$date, "%m/%d/%Y")
+MetaData$DATE <- as.Date(MetaData$DATE, "%m/%d/%Y")
+
+```
+
+
+Let's make some nice data frames removing the Actual Wait Time field, the NAs from the Posted Wait Time field, and the '-999' entries from posted wait times and check out some basic stats. According to the data dictionary '-999' indicates the attraction was closed. It's a shame Actual Wait Time had so many NAs as that would have been a nice chance for some feature engineering.   
+
+```{r Tidying up Attraction DFsl}
+
+#Removing the NAs
+SpaceshipEarth_Clean <- SpaceshipEarth[complete.cases(SpaceshipEarth[, 3]),]
+
+#Remove 2018 observations                     
+SpaceshipEarth_Clean <- SpaceshipEarth_Clean[format(SpaceshipEarth_Clean$date, '%Y') != "2018", ]
+
+#Piping the changes 
+SpaceshipEarth_Clean <- SpaceshipEarth_Clean %>%
+                      #Drop the actual wait time column 
+                      select (-c(SACTMIN)) %>%
+                      #Add a month column
+                      mutate(month = month(SpaceshipEarth_Clean$date)) %>%
+                      #Add a year column
+                      mutate(year = year(SpaceshipEarth_Clean$date)) %>%
+                      #Add a day column 
+                      mutate(day = day(SpaceshipEarth_Clean$date)) %>%
+                      #Add a weekday column
+                      mutate(weekday = as.factor(weekdays(SpaceshipEarth_Clean$date))) %>%
+                      #Remove the -999 observations 
+                      filter(SpaceshipEarth_Clean$SPOSTMIN >= 0) 
+
+```
+
+Now that we've cleaned up our data frame, let's add in all that metadata!
+
+```{r Joining the Metadata}
+SpaceshipEarth_meta <- left_join(SpaceshipEarth_Clean, MetaData, by=c("date" = "DATE"))
+```
+
+Checking out the density of our posted wait times.
+
+```{r Density of Wait Times}
+ggplot(SpaceshipEarth_meta,aes(x=SPOSTMIN)) + geom_density(fill="light blue", color="blue") +
+  labs(x="Posted Wait Time (Minutes)", y="Density", title="Density Plot of Posted Wait Times at Spaceship Earth") + 
+  theme(plot.title = element_text(hjust = 0.5)) + 
+  geom_vline(xintercept=15)
+```
+
+Time to add any binary variables necessary. Most were already added in the metadata. I will take this time to remove some of the variables that are specific to other parks or are duplicates of variables I created on my own. On a bigger project using a computer with more power I would have left these variables in. For the purposes of this project I think we will be okay!  
+
+```{r Binary Variables and Modifications}
+
+#Removing variables 
+SpaceshipEarth_meta <- SpaceshipEarth_meta[-c(9:13, 19, 61:69, 79:107, 119:144, 150:157, 158:171, 176:196)]
+
+#Binary field for under 10 minute posted wait
+SpaceshipEarth_meta$SPOSTMIN_BINARY <- ifelse(SpaceshipEarth_meta$SPOSTMIN <= 10,1,0) #1 is under 10 minute wait
+SpaceshipEarth_meta$SPOSTMIN_BINARY <- as.factor(SpaceshipEarth_meta$SPOSTMIN_BINARY)
+
+#Binary field for party season 
+SpaceshipEarth_meta$PARTYSEASON_BINARY <- ifelse(SpaceshipEarth_meta$PARTYSEASON_WDW == "NONE",0,1) #0 is no active party 
+
+#Converting inSession character field to numeric 
+SpaceshipEarth_meta$inSession <- as.numeric(sub("%", "", SpaceshipEarth_meta$inSession))
+
+#Add categorical column splitting percentage of in-session schools to 25% ranges
+SpaceshipEarth_meta$inSession_Cat <- ifelse(SpaceshipEarth_meta$inSession >= 0 & SpaceshipEarth_meta$inSession <=25,1,
+                                            ifelse(SpaceshipEarth_meta$inSession > 25 & SpaceshipEarth_meta$inSession <=50,2,
+                                                   ifelse(SpaceshipEarth_meta$inSession > 50 & SpaceshipEarth_meta$inSession <=75,3,4)))
+
+#Parse the time from datetime
+SpaceshipEarth_meta$datetime <- strftime(SpaceshipEarth_meta$datetime, format="%H:%M:%S")
+
+#Time category variable
+SpaceshipEarth_meta$datetime_Cat <- ifelse(SpaceshipEarth_meta$datetime >= 00:00 & SpaceshipEarth_meta$datetime <=12:00,1,
+                                            ifelse(SpaceshipEarth_meta$datetime > 12:00 & SpaceshipEarth_meta$datetime <=17:00,2,3))
+
+                                                       
+```
+
+Splitting the Data
+------------------
+
+Split up into our test and training sets 80/20. 
+
+```{r Splitting into Fit and Test Sets}
+set.seed(360)
+#SE_Split <- sample(nrow(SpaceshipEarth_meta),0.2 * nrow(SpaceshipEarth_meta))
+
+SE_Split <- createDataPartition(SpaceshipEarth_meta$SPOSTMIN_BINARY, p = .8,
+                                list = FALSE,
+                                times = 1)
+SE_fit <- SpaceshipEarth_meta[SE_Split,]
+SE_test <- SpaceshipEarth_meta[-SE_Split,] 
+```
+
+
+Now we can safely look at some stats and maybe even make some graphs. Fun! Here come the variables!
+
+```{r Attraction Summary Stats}
+summary(SE_fit)
+```
+
+
+Line Plots
+----------
+
+Let's see how much wait times have varied through one of the rides through the years. Have they slowly increased or stayed about the same?
+
+```{r Annual Average Posted Wait}
+
+# Create a data frame of what we want to plot
+SE_Years <- SE_fit %>%
+                group_by(year) %>%
+                summarise(avg = mean(SPOSTMIN))
+
+# Plot it!
+ggplot(data=SE_Years, aes(x=year, y=avg, group=1)) + 
+        geom_line(color="blue") +
+        geom_point()+
+        xlab("Year")+
+        ylab("Average Posted Wait Time (Minutes)")+
+        ggtitle("Average Posted Wait Times for Spaceship Earth")+
+        theme(plot.title = element_text(hjust = 0.5))
+  
+```
+
+Average wait times seem to have increased through the years. According to this site - https://disneynews.us/disney-parks-attendance/
+overall attendance has increased at the parks through the years so that provides an explanation. 
+
+How do wait times look month to month? Let's look at 2015 and 2016; Two years that had similar average wait times. 
+Is there a monthly pattern?
+
+```{r Monthly Average Posted Wait}
+
+# Creating a new data frame to fit what we want to plot 
+SE_Months <- SE_fit %>%
+                filter(year == 2015 | year == 2016) %>%
+                group_by(month, year) %>%
+                summarise(avg = mean(SPOSTMIN))
+
+# Plot it! 
+ggplot(SE_Months, aes(month, label=TRUE, abbr=TRUE,
+                      avg, group=factor(year), color=factor(year))) +
+                  geom_line() +
+                  geom_point() +
+                  labs(x="Month", y="Average Posted Wait Time (Minutes)", 
+                  color="Year", title="Average Posted Wait Times for Spaceship Earth ") +
+                  theme(plot.title = element_text(hjust = 0.5)) +
+                  xlim("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+```
+
+Visually it seems we have a relationship between the month and the average wait time. If I were a betting man I would say we will see a pattern in day of the week as well..  
+
+```{r Weekly Average Wait Times}
+   
+SE_Weekday <- SE_fit %>%
+                filter(year == 2015 | year == 2016) %>%
+                group_by(weekday, year) %>%
+                summarise(avg = mean(SPOSTMIN))
+
+ggplot(SE_Weekday, aes(weekday, label=TRUE, abbr=TRUE,
+                      avg, group=factor(year), color=factor(year))) +
+                  geom_line() +
+                  geom_point() +
+                  labs(x="Weekday", y="Average Posted Wait Time (Minutes)", 
+                  color="Year", title="Average Posted Wait Times for Spaceship Earth ") +
+                  theme(plot.title = element_text(hjust = 0.5)) +
+                  xlim("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")
+```
+
+
+Histogram
+---------
+
+Let's see how some of these metadata variables look. How many observations take place during an event? 
+
+```{r Histogram of Events}
+ggplot(SE_fit) + 
+  geom_histogram(aes(x=EPevent), fill = " dark blue") + 
+  labs(x="Event (Yes or No)", y="Number of Observations", title="Observations During an Event") + 
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+Looks like nearly half of the observations take place during an event. EPCOT does host a few festivals. 
+
+
+Scatterplots
+------------
+
+Do number of firework shows a night affect wait times?
+
+```{r Scatter with number of Fireworks Shows}
+ggplot(data=SE_fit) + 
+  geom_point(aes(x=EPFIREWK, y=SPOSTMIN)) + 
+  labs(x="Number of Fireworks Shows that Day", y="Posted Wait Times (Minutes)", title="Posted Wait Times per Number of Firework Shows")+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+I wonder if not firework shows were days with poor weather? That would be interesting to see. One firework show days are also mostly likely the greatest occuring. 
+
+What about holidays and wait times?
+
+```{r Scatter of Holidays and Wait Times}
+ggplot(data=SE_fit) + 
+  geom_point(aes(x=HOLIDAY, y=SPOSTMIN)) + 
+  labs(x="Holiday (Yes or No)", y="Posted Wait Times (Minutes)", title="Holidays vs Posted Wait Times")+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+The holiday metric breaks down each holiday on a 1 to 5 scale. For example Christmas is a 5, President's Day is a 1. Sorry Presidents. 
+
+```{r Scatter of Holiday Metric}
+ggplot(data=SE_fit) + 
+  geom_point(aes(x=HOLIDAYM, y=SPOSTMIN)) + 
+  labs(x="Holiday Metric", y="Posted Wait Times (Minutes)", title="Holiday Metric vs Posted Wait Times")+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+Run Disney race days.
+
+```{r Scatter of Run Disney Race Days}
+ggplot(data=SE_fit) + 
+  geom_point(aes(x=WDWrace, y=SPOSTMIN)) + 
+  labs(x="WDW Race Day (Yes or No)", y="Posted Wait Times (Minutes)", title="Run Disney Race Days vs Posted Wait Times")+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+Earlier I added a categorical range (by 25%) of the percentage of schools in session. Category 1 is 0 - 25% of schools are in session, category 2 is 25-50% of schools are in session etc. 
+
+```{r Scatter of In session Schools}
+ggplot(data=SE_fit) + 
+  geom_point(aes(x=inSession_Cat, y=SPOSTMIN)) + 
+  labs(x="Percentage of Schools in Session", y="Posted Wait Times (Minutes)", title="Percentage of In Session Schools vs Posted Wait Times")+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+Density Plots
+-------------
+
+Maximum temperature and minimum temparture density plots.
+
+```{r Denisty Plot of Max Temperatures}
+ggplot(SE_fit) + geom_density(aes(x=SE_fit$WDWMAXTEMP)) + 
+  labs(x="Maximum Temperature", y="Density", title="Density Plot of Maximum Temperatures")+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r Density Plot of Minimum Temperature}
+ggplot(SE_fit) + geom_density(aes(x=SE_fit$WDWMINTEMP)) + 
+  labs(x="Minimum Temperature", y="Density", title="Density Plot of Minimum Temperatures")+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+
+```{r Density Plot of Open Hours}
+ggplot(SE_fit) + geom_density(aes(x=SE_fit$EPHOURS)) + 
+  labs(x="Open Hours for EPCOT", y="Density", title="Density Plot of EPCOT Open Hours")+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+Other Plots
+-----------
+
+Proximity to Holiday in days.
+
+```{r Proximity to Holiday}
+ggplot(SE_fit, aes(x=SE_fit$HOLIDAYPX, y=SE_fit$SPOSTMIN)) +
+  geom_point() + 
+  geom_smooth() +
+  labs(x="Proximity in days to a Holiday", y="Posted Wait Time (Minutes)", title="Posted Wait Time to Proximity to Holiday")+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+Open hours for EPCOT including Extra Magic Hours. 
+
+```{r Total Open Hours including EMH}
+ggplot(SE_fit, aes(x=SE_fit$EPHOURSEMH, y=SE_fit$SPOSTMIN)) +
+  geom_point() + 
+  geom_smooth() +
+  labs(x="Total Opening Hours", y="Posted Wait Time (Minutes)", title="Total Open Hours Including EMH")+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+Group By Analysis
+-----------------
+
+Just how many holidays exist in our data?
+
+```{r Holiday Count}
+ddply(SE_fit,.(HOLIDAY),summarise,COUNT=length(HOLIDAY))
+```
+
+Schools in session mean wait times.
+
+```{r Schools in Session Mean Wait Time}
+ddply(SE_fit,.(inSession_Cat), summarise, "Mean Posted Wait Time"=mean(SPOSTMIN))
+```
+
+Race day mean wait times.
+
+```{r Race Day Mean Wait Time}
+ddply(SE_fit,.(WDWrace), summarise, "Mean Posted Wait Time"=mean(SPOSTMIN))
+```
+
+Holidays and events mean wait times.
+
+```{r Holiday and Event Mean Wait Time}
+ddply(SE_fit,.(HOLIDAY, WDWevent), summarise, "Mean Posted Wait Time"=mean(SPOSTMIN))
+```
+
+
+Let's try out some models!
+
+```{r Write Out Data Frames}
+saveRDS(SE_fit, file="Data/SE_fit.rds")
+saveRDS(SE_test, file="Data/SE_test.rds")
+saveRDS(SpaceshipEarth_meta, file="Data/SpaceshipEarth_meta.rds")
+```
+
+```{r End, echo=FALSE, fig.cap="XKCD Comic - Training Models"}
+knitr::include_graphics("Images/xkcd1.png")
+```
+

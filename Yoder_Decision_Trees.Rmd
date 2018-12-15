@@ -1,0 +1,192 @@
+---
+title: "Decision Tree Models"
+author: "Tom Yoder - MIS 5470"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 2
+    toc_float: yes
+  pdf_document:
+    toc: yes
+    toc_depth: '2'
+---
+
+
+Using Data Science to Create Disney Magic - Decision Trees   
+============================================================
+
+Let's try predicting posted wait times under ten minutes using decision tree models.
+
+Time to make the data!
+
+```{r Loading our data}
+
+SE_fit <- readRDS('Data/SE_fit.rds')
+SE_test <- readRDS('Data/SE_test.rds')
+
+```
+
+Load some libraries 
+
+```{r Loading Libraries}
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(ISLR)
+library(RColorBrewer)
+library(randomForest)
+library(rpart)
+library(rpart.plot)
+library(caret)
+library(randomForest)
+```
+
+
+Building some Trees
+-------------------
+
+Let's try out a few options and see how we do.
+
+```{r First Tree}
+tree1 <- rpart(SPOSTMIN_BINARY ~ EPevent + HOLIDAY + month + EPHOURS, data=SE_fit, method="class")
+
+rpart.plot(tree1)
+```
+
+```{r Tree 1 Confusion Matrix}
+tree1_cm <- confusionMatrix(predict(tree1, type="class"), 
+                       SE_fit$SPOSTMIN_BINARY, positive = "1")
+tree1_cm
+```
+
+Let's try some more variables. 
+
+```{r Second Tree}
+tree2 <- rpart(SPOSTMIN_BINARY ~ EPevent + HOLIDAYPX + month + EPHOURS + WDWrace + 
+                 WDWMAXTEMP + inSession, data=SE_fit, method="class")
+
+rpart.plot(tree2)
+
+```
+
+```{r Tree 2 Confusion Matrix}
+tree2_cm <- confusionMatrix(predict(tree2, type="class"), 
+                       SE_fit$SPOSTMIN_BINARY, positive = "1")
+tree2_cm
+```
+
+These are not super great so far, let's give it more!
+
+```{r Third Tree}
+tree3 <- rpart(SPOSTMIN_BINARY ~ EPevent + HOLIDAYPX + month + EPHOURS + WDWrace + 
+                 WDWMAXTEMP + inSession + weekday + HOLIDAYM + WDWMEANTEMP + EPEMHMORN + EPEMHEVE +
+                 PARTYSEASON_BINARY + EPFIREWK, data=SE_fit, method="class")
+
+rpart.plot(tree3)
+```
+
+```{r Tree 3 Confusion Matrix}
+tree3_cm <- confusionMatrix(predict(tree3, type="class"), 
+                       SE_fit$SPOSTMIN_BINARY, positive = "1")
+tree3_cm
+```
+
+```{r Fourth Tree}
+tree4 <- rpart(SPOSTMIN_BINARY ~ datetime_Cat + weekday + EPevent + inSession, data=SE_fit, method="class")
+
+rpart.plot(tree4)
+```
+
+```{r Tree 4 Confusion Matrix}
+tree4_cm <- confusionMatrix(predict(tree4, type="class"), 
+                       SE_fit$SPOSTMIN_BINARY, positive = "1")
+tree4_cm
+```
+
+None of these seem to be producing really great models. Let's see how they compare to the test data.
+
+Comparing Trees to Test Data
+----------------------------
+
+```{r Comparing to Test Data}
+tree1_pred <- predict(tree1, SE_test, type="class" )
+tree2_pred <- predict(tree2, SE_test, type="class" )
+tree3_pred <- predict(tree3, SE_test, type="class" )
+tree4_pred <- predict(tree4, SE_test, type="class" )
+
+cm1_pred <- confusionMatrix(tree1_pred, SE_test$SPOSTMIN_BINARY, positive = "1")
+cm2_pred <- confusionMatrix(tree2_pred, SE_test$SPOSTMIN_BINARY, positive = "1")
+cm3_pred <- confusionMatrix(tree3_pred, SE_test$SPOSTMIN_BINARY, positive = "1")
+cm4_pred <- confusionMatrix(tree4_pred, SE_test$SPOSTMIN_BINARY, positive = "1")
+
+sprintf("Tree1: Fit acc = %.3f Pred acc = %.3f",tree1_cm$overall['Accuracy'], cm1_pred$overall['Accuracy'])
+
+sprintf("Tree2: Fit acc = %.3f Pred acc = %.3f",tree2_cm$overall['Accuracy'], cm2_pred$overall['Accuracy'])
+
+sprintf("Tree3: Fit acc = %.3f Pred acc = %.3f",tree3_cm$overall['Accuracy'], cm3_pred$overall['Accuracy'])
+
+sprintf("Tree4: Fit acc = %.3f Pred acc = %.3f",tree4_cm$overall['Accuracy'], cm4_pred$overall['Accuracy'])
+
+```
+
+Yikes! These trees are not great.
+
+
+Trying Random Forests
+---------------------
+
+Let's have a go at some Random Forest models and see how we do.
+
+```{r Random Forest 1}
+SE_rf1 <- randomForest(SPOSTMIN_BINARY ~ EPevent + HOLIDAYPX + month + EPHOURS + 
+                         WDWrace + WDWMAXTEMP + inSession + weekday + HOLIDAYM + 
+                         WDWMEANTEMP + PARTYSEASON_BINARY + EPFIREWK, 
+                         data=SE_fit,
+                         #My laptop was having trouble processing the default 500 trees, trying two smaller RFs and combining
+                         ntree=100,
+                         importance=TRUE,
+                         na.action = na.omit)
+
+SE_rf1
+```
+
+```{r Random Forest 2}
+SE_rf2 <- randomForest(SPOSTMIN_BINARY ~ EPevent + HOLIDAYPX + month + EPHOURS + 
+                         WDWrace + WDWMAXTEMP + inSession + weekday + HOLIDAYM + 
+                         WDWMEANTEMP + PARTYSEASON_BINARY + EPFIREWK, 
+                         data=SE_fit,
+                         ntree=100,
+                         importance=TRUE,
+                         na.action = na.omit)
+
+SE_rf2
+```
+
+```{r Combining Random Forests}
+SE_rf_combined <- combine(SE_rf1, SE_rf2)
+
+SE_rf_combined
+```
+
+Following the steps to visualize variable importance in the random forest models.
+```{r Variable Importance}
+
+#creating the data frame
+df_imp <- arrange(as.data.frame(SE_rf_combined$importance),
+                  MeanDecreaseGini)
+
+df_imp$variable <- as.factor(names(SE_rf_combined$importance[,1]))
+
+df_imp <- within(df_imp, variable <- reorder(variable, MeanDecreaseGini))
+
+ggplot(data=df_imp) + geom_bar(aes(x=variable, y=MeanDecreaseGini), 
+                               stat = "identity") + coord_flip()
+```
+
+```{r Predicting with the bagged trees}
+SE_rf_pred <- predict(SE_rf_combined, SE_test, type="class" )
+SE_rf_cm <- confusionMatrix(SE_rf_pred, SE_test$SPOSTMIN_BINARY, positive = "1")
+SE_rf_cm
+```
+
+Better than our decision trees but still not great. 

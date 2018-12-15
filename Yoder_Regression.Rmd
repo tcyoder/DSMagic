@@ -1,0 +1,308 @@
+---
+title: "Regression Models"
+author: "Tom Yoder - MIS 5470"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 2
+    toc_float: yes
+  pdf_document:
+    toc: yes
+    toc_depth: '2'
+---
+
+
+Using Data Science to Create Disney Magic - Regression Models   
+=============================================================
+
+Let's try predicting posted wait times under ten minutes using regression models.
+
+```{r Load the data}
+SE_fit <- readRDS('Data/SE_fit.rds')
+SE_test <- readRDS('Data/SE_test.rds')
+SE_meta <- readRDS('Data/SpaceshipEarth_meta.rds')
+```
+
+Load our favorite libraries.
+
+```{r Load the libraries}
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(ISLR)
+library(RColorBrewer)
+library(randomForest)
+library(rpart)
+library(rpart.plot)
+library(caret)
+library(randomForest)
+```
+
+
+Building and testing the Null Model
+-----------------------------------
+
+As we learned in class, a great place to start is by building a null model, predicting that all posted wait times are over ten minutes.
+
+```{r Build the null model}
+SE_meta$null <- 0
+```
+
+Checking out the confusion matrix using the null model.
+
+```{r Confusion Matrix Table with Null Model}
+table(SE_meta$SPOSTMIN_BINARY, SE_meta$null)
+```
+
+Checking out the accuracy of the null model.
+
+```{r}
+prop.table(table(SE_meta$SPOSTMIN_BINARY, SE_meta$null))
+```
+
+
+```{r Confusion Matrix with Null Model}
+confusionMatrix(as.factor(SE_meta$null), SE_meta$SPOSTMIN_BINARY, positive = "1")
+```
+
+Building and testing Logistic Regression Models
+-----------------------------------------------
+
+Let's try and build some real models and see how we do.
+
+```{r Model 1}
+model1 <- glm(SPOSTMIN_BINARY ~ EPFIREWK + PARTYSEASON_BINARY + WDWMEANTEMP + HOLIDAYM, data=SE_fit, 
+               family=binomial)
+
+summary(model1)
+```
+
+Using this code chunk to find the perfect probability threshold and improve these model. 
+
+```{r Model 1 Threshold}
+cutoffs <- seq(0.1,0.9,0.1)
+accuracy <- NULL
+for (i in seq(along = cutoffs)){
+    prediction <- ifelse(model1$fitted.values >= cutoffs[i], 1, 0) #Predicting for cut-off
+accuracy <- c(accuracy,length(which(SE_fit$SPOSTMIN_BINARY ==prediction))/length(prediction)*100)
+}
+
+plot(cutoffs, accuracy, pch =10,type='b',col= "steelblue",
+     main ="Logistic Regression", xlab="Cutoff Level", ylab = "Accuracy %")
+```
+
+And the confusion matrix..
+
+```{r Model 1 CM}
+SE_test$cm_model1 <- predict(model1, newdata=SE_test, type='response')
+
+SE_test$cm_model1 <- (SE_test$cm_model1 > 0.4) * 1
+
+model1_aic <- summary(model1)$aic
+
+model1_cm <- confusionMatrix(as.factor(SE_test$cm_model1), as.factor(SE_test$SPOSTMIN_BINARY), positive = "1")
+
+model1_cm 
+```
+
+Let's try another.
+
+```{r Model 2}
+model2 <- glm(SPOSTMIN_BINARY ~ datetime_Cat + weekday + EPevent + inSession, data=SE_fit, 
+               family=binomial(link="logit"))
+
+summary(model2)
+```
+
+```{r Prob Threshold 2}
+cutoffs <- seq(0.1,0.9,0.1)
+accuracy <- NULL
+for (i in seq(along = cutoffs)){
+    prediction <- ifelse(model2$fitted.values >= cutoffs[i], 1, 0) #Predicting for cut-off
+accuracy <- c(accuracy,length(which(SE_fit$SPOSTMIN_BINARY ==prediction))/length(prediction)*100)
+}
+
+plot(cutoffs, accuracy, pch =19,type='b',col= "steelblue",
+     main ="Logistic Regression", xlab="Cutoff Level", ylab = "Accuracy %")
+```
+
+And the confusion matrix again.
+
+```{r Model 2 CM}
+SE_test$cm_model2 <- predict(model2, newdata=SE_test, type='response')
+
+SE_test$cm_model2 <- (SE_test$cm_model2 > 0.5) * 1
+
+model2_aic <- summary(model2)$aic
+
+model2_cm <- confusionMatrix(as.factor(SE_test$cm_model2), as.factor(SE_test$SPOSTMIN_BINARY), positive = "1")
+
+model2_cm 
+```
+
+One more, let's load it up this time.
+
+```{r Model 3}
+model3 <- glm(SPOSTMIN_BINARY ~ EPevent + HOLIDAYPX + month + EPHOURS + 
+                         WDWrace + WDWMAXTEMP + inSession + weekday + HOLIDAYM + 
+                         WDWMEANTEMP + PARTYSEASON_BINARY + EPFIREWK +
+                         datetime_Cat + month, data=SE_fit, 
+               family=binomial(link="logit"))
+
+summary(model3)
+```
+
+
+```{r Prob Threshold 3}
+cutoffs <- seq(0.1,0.9,0.1)
+accuracy <- NULL
+for (i in seq(along = cutoffs)){
+    prediction <- ifelse(model3$fitted.values >= cutoffs[i], 1, 0) #Predicting for cut-off
+accuracy <- c(accuracy,length(which(SE_fit$SPOSTMIN_BINARY ==prediction))/length(prediction)*100)
+}
+
+plot(cutoffs, accuracy, pch =19,type='b',col= "steelblue",
+     main ="Logistic Regression", xlab="Cutoff Level", ylab = "Accuracy %")
+```
+
+
+One more confusion matrix.
+
+```{r Model 3 CM}
+SE_test$cm_model3 <- predict(model3, newdata=SE_test, type='response')
+
+SE_test$cm_model3 <- (SE_test$cm_model3 > 0.5) * 1
+
+model3_aic <- summary(model3)$aic
+
+model3_cm <- confusionMatrix(as.factor(SE_test$cm_model3), as.factor(SE_test$SPOSTMIN_BINARY), positive = "1")
+
+model3_cm 
+```
+
+```{r Model 4}
+model4 <- glm(SPOSTMIN_BINARY ~ PARTYSEASON_BINARY + month + WDWMAXTEMP + weekday, data=SE_fit, 
+               family=binomial(link="logit"))
+
+summary(model4)
+```
+
+
+```{r Prob Threshold 4}
+cutoffs <- seq(0.1,0.9,0.1)
+accuracy <- NULL
+for (i in seq(along = cutoffs)){
+    prediction <- ifelse(model4$fitted.values >= cutoffs[i], 1, 0) #Predicting for cut-off
+accuracy <- c(accuracy,length(which(SE_fit$SPOSTMIN_BINARY ==prediction))/length(prediction)*100)
+}
+
+plot(cutoffs, accuracy, pch =19,type='b',col= "steelblue",
+     main ="Logistic Regression", xlab="Cutoff Level", ylab = "Accuracy %")
+```
+
+Model 4 confusion matrix.
+
+```{r Model 4 CM}
+SE_test$cm_model4 <- predict(model4, newdata=SE_test, type='response')
+
+SE_test$cm_model4 <- (SE_test$cm_model4 > 0.5) * 1
+
+model4_aic <- summary(model4)$aic
+
+model4_cm <- confusionMatrix(as.factor(SE_test$cm_model4), as.factor(SE_test$SPOSTMIN_BINARY), positive = "1")
+
+model4_cm 
+```
+ Model 5 with some new variables.
+ 
+```{r Model 5}
+model5 <- glm(SPOSTMIN_BINARY ~ WDWSEASON + HOLIDAYM + WDWMAXTEMP + WDWMINTEMP + inSession_Cat + EPHOURSEMH, data=SE_fit, 
+               family=binomial(link="logit"))
+
+summary(model5)
+```
+
+
+```{r Model 5 Threshold}
+cutoffs <- seq(0.1,0.9,0.1)
+accuracy <- NULL
+for (i in seq(along = cutoffs)){
+    prediction <- ifelse(model5$fitted.values >= cutoffs[i], 1, 0) #Predicting for cut-off
+accuracy <- c(accuracy,length(which(SE_fit$SPOSTMIN_BINARY ==prediction))/length(prediction)*100)
+}
+
+plot(cutoffs, accuracy, pch =19,type='b',col= "steelblue",
+     main ="Logistic Regression", xlab="Cutoff Level", ylab = "Accuracy %")
+```
+
+
+
+Model 5 confusion matrix.
+
+```{r}
+SE_test$cm_model5 <- predict(model5, newdata=SE_test, type='response')
+
+SE_test$cm_model5 <- (SE_test$cm_model5 > 0.5) * 1
+
+model5_aic <- summary(model5)$aic
+
+model5_cm <- confusionMatrix(as.factor(SE_test$cm_model5), as.factor(SE_test$SPOSTMIN_BINARY), positive = "1")
+
+model5_cm 
+```
+
+Trying Linear Regression
+-------------------------
+
+```{r Linear Model 1}
+linear1 <- lm(SPOSTMIN ~ EPFIREWK + PARTYSEASON_BINARY + WDWMEANTEMP + HOLIDAYM, data=SE_fit)
+
+summary(linear1)
+```
+
+```{r Linear CM 1}
+SE_test$lin_mod1_SPOSTMIN <- predict(linear1, newdata=SE_test)
+
+SE_test$lin_mod1_SPOSTMIN_BINARY <- ifelse(SE_test$lin_mod1_SPOSTMIN < 15,1,0)
+
+linear_mod1_rsq <- summary(linear1)$r.sq
+
+linear_mod1_aic <- AIC(linear1)
+
+linear_cm1 <- confusionMatrix(as.factor(SE_test$lin_mod1_SPOSTMIN_BINARY), as.factor(SE_test$SPOSTMIN_BINARY), positive = "1")
+
+linear_cm1
+```
+
+Checking out residual analysis for the first linear model.
+
+```{r Linear 1 Residual Analysis}
+summary(as.numeric(SE_test$SPOSTMIN_BINARY) - predict(linear1,newdata=SE_test))
+```
+
+How about another linear model.
+
+```{r Linear Model 2}
+linear2 <- lm(SPOSTMIN ~ EPevent + month + 
+                         WDWrace + WDWMAXTEMP + weekday + 
+                         WDWMEANTEMP +
+                         datetime_Cat + month, data=SE_fit)
+
+summary(linear2)
+```
+
+```{r Linear Model 2 CM}
+SE_test$lin_mod2_SPOSTMIN <- predict(linear2, newdata=SE_test)
+
+SE_test$lin_mod2_SPOSTMIN_BINARY <- ifelse(SE_test$lin_mod2_SPOSTMIN < 15,1,0)
+
+linear_mod2_rsq <- summary(linear2)$r.sq
+
+linear_mod2_aic <- AIC(linear2)
+
+linear_cm2 <- confusionMatrix(as.factor(SE_test$lin_mod2_SPOSTMIN_BINARY), as.factor(SE_test$SPOSTMIN_BINARY), positive = "1")
+
+linear_cm2
+```
+
+Regression models do not seem to be performing well. I think this will lead to some reflection in my lesson learned section of the README file. 

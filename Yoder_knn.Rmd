@@ -1,0 +1,117 @@
+---
+title: "K Nearest Neighbor"
+author: "Tom Yoder - MIS 5470"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 2
+    toc_float: yes
+  pdf_document:
+    toc: yes
+    toc_depth: '2'
+---
+
+
+Using Data Science to Create Disney Magic - K Nearest Neighbor   
+==============================================================
+
+Let's see if we can squeeze an K Nearest Neighbor analysis out of our data.
+
+
+Time to make the data!
+
+```{r Loading the data}
+SE_meta <- readRDS('Data/SpaceshipEarth_meta.rds')
+```
+
+Load our favorite libaries. 
+
+```{r Loading the libraries}
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(ISLR)
+library(RColorBrewer)
+library(randomForest)
+library(rpart)
+library(rpart.plot)
+library(caret)
+library(randomForest)
+#Using the class library for the KNN
+library(class)
+```
+
+I will try and follow the steps suggested some of the articles linked in our notes and some googled sites.
+
+Normalizing a Numerical Subset
+------------------------------
+
+First I will make a data frame that only contains numeric variables.
+
+
+```{r Create numeric data frame}
+SE_num <- data.frame(as.numeric(SE_meta$HOLIDAYPX), SE_meta$inSession,
+                     SE_meta$EPHOURSEMH, SE_meta$WEATHER_WDWPRECIP, SE_meta$EPFIREWK)
+
+```
+
+Then we will enter this function to normalize the data.
+
+```{r Normalize Function}
+#KNN must not have NAs!
+norm_function <- function(x) {num <- x - min(x, na.rm = TRUE)
+denom <- max(x, na.rm = TRUE) - min(x, na.rm = TRUE)
+return (num/denom)}
+```
+
+```{r Normalizing the data frame}
+SE_norm <- as.data.frame(lapply(SE_num, norm_function))
+```
+
+Checking to make sure that worked!
+
+```{r Normalized Check}
+summary(SE_norm)
+```
+
+
+Finally ready to split the data. A non-elegant 70:30 split.
+
+```{r Data Split}
+
+SE_learn <- SE_norm[1:142990,]
+SE_valid <- SE_norm[142991:204272,]
+
+SE_learn_labels <- SE_meta[1:142990,84]
+SE_valid_labels <- SE_meta[142991:204272,84]
+
+```
+
+
+KNN Models
+----------
+
+Let's see if we can do KNN.
+
+```{r KNN 1}
+SE_KNN1 <- knn(train = SE_learn, test = SE_valid, 
+               cl = SE_learn_labels, k=5)
+```
+
+Checking the performance. 
+
+```{r KNN 1 CM}
+confusionMatrix(SE_KNN1, SE_valid_labels, positive="1")
+```
+
+It's not a great result, but it took me working through it all day to just get this and I am proud of it! I will try the same model with a different K value. 
+
+
+```{r KNN 2}
+SE_KNN2 <- knn(train = SE_learn, test = SE_valid, 
+               cl = SE_learn_labels, k=3)
+
+confusionMatrix(SE_KNN2, SE_valid_labels, positive="1")
+```
+
+Might as well flip a coin! I will reflect on this in my lessons learned in the README file. 
